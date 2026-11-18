@@ -17,9 +17,7 @@
   --elfenbein: #EDE7DA;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
@@ -332,6 +330,7 @@ body.clean .hint {
     <button id="edit">✎ Felder bearbeiten</button>
     <button id="reset">↺ Häkchen zurücksetzen</button>
     <button id="clear">Alle Begriffe löschen</button>
+    <button id="testmark" type="button">♫ Plopp testen</button>
     <button id="testsound" type="button">♫ Fanfare testen</button>
   </div>
 
@@ -343,12 +342,14 @@ body.clean .hint {
   </div>
 
   <p class="hint">
-    Zum Abhaken ein Feld anklicken. Im Bearbeitungsmodus Begriffe eingeben und anschließend speichern.
+    Zum Abhaken ein Feld anklicken.
+    Im Bearbeitungsmodus Begriffe eingeben und anschließend speichern.
     Die Karte wird in der OBS-Browserquelle gespeichert.
     In OBS: Rechtsklick auf Quelle → Interagieren, um Felder zu bearbeiten.
     Chatbefehl: !bingo C3 (ein Zuschauer reicht).
-    Bei einem neuen Bingo ertönt eine kurze Fanfare.
-    In OBS: Audio über OBS steuern aktivieren; bei Bedarf einmal „Fanfare testen“ über Interagieren klicken.
+    Beim Markieren ertönt ein kurzer Plopp.
+    Bei einem neuen Bingo ertönt eine Fanfare.
+    In OBS: Audio über OBS steuern aktivieren und bei Bedarf einmal „Plopp testen“ anklicken.
   </p>
 </div>
 
@@ -456,15 +457,22 @@ function draw() {
 
       el.addEventListener('click', () => {
         const before = bingo();
+        const wasChecked = checks.includes(i);
 
-        checks = checks.includes(i)
+        checks = wasChecked
           ? checks.filter(n => n !== i)
           : [...checks, i];
 
         persist();
         draw();
 
-        if (bingo() > before) playFanfare();
+        if (!wasChecked) {
+          if (bingo() > before) {
+            playFanfare();
+          } else {
+            playMarkSound();
+          }
+        }
       });
     }
 
@@ -509,23 +517,62 @@ document.getElementById('clear').onclick = () => {
 
 draw();
 
-// Bingo-Fanfare
+// AUDIO
 
 let fanfareContext;
 
+function getAudioContext() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+
+  if (!AC) return null;
+
+  fanfareContext ||= new AC();
+
+  if (fanfareContext.state === 'suspended') {
+    fanfareContext.resume().catch(() => {});
+  }
+
+  return fanfareContext;
+}
+
+// KURZER PLOPP BEIM MARKIEREN
+
+function playMarkSound() {
+  try {
+    const ctx = getAudioContext();
+
+    if (!ctx) return;
+
+    const t = ctx.currentTime + 0.01;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+
+    osc.frequency.setValueAtTime(850, t);
+    osc.frequency.exponentialRampToValueAtTime(350, t + 0.12);
+
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.12, t + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+
+    osc.connect(gain).connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.17);
+
+  } catch(err) {
+    console.warn('Markierungssound fehlgeschlagen', err);
+  }
+}
+
+// BINGO-FANFARE
+
 function playFanfare() {
   try {
-    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = getAudioContext();
 
-    if (!AC) return;
-
-    fanfareContext ||= new AC();
-
-    const ctx = fanfareContext;
-
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
+    if (!ctx) return;
 
     const t = ctx.currentTime + 0.06;
 
@@ -560,9 +607,10 @@ function playFanfare() {
   }
 }
 
+document.getElementById('testmark').onclick = playMarkSound;
 document.getElementById('testsound').onclick = playFanfare;
 
-// Twitch-Chat
+// TWITCH-CHAT
 
 let ws = null;
 let reconnectTimer = null;
@@ -597,7 +645,11 @@ function markCoordinate(coord) {
     persist();
     draw();
 
-    if (bingo() > before) playFanfare();
+    if (bingo() > before) {
+      playFanfare();
+    } else {
+      playMarkSound();
+    }
   }
 
   return true;
